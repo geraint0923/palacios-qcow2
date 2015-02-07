@@ -73,7 +73,9 @@ v3_qcow2_t *v3_qcow2_open(const char *path);
 
 void v3_qcow2_close(v3_qcow2_t *pf);
 
-int v3_qcow2_read(v3_qcow2_t *pf, void *buff, uint64_t pos, int len);
+int v3_qcow2_read(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len);
+
+int v3_qcow2_write(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len);
 
 int v3_addr_split(v3_qcow2_t *qc2, uint64_t addr, uint64_t *l1_idx, uint64_t *l2_idx, uint64_t *offset);
 

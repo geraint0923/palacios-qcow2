@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int v3_addr_split(v3_qcow2_t *qc2, uint64_t addr, uint64_t *l1_idx, uint64_t *l2_idx, uint64_t *offset) {
+int v3_qcow2_addr_split(v3_qcow2_t *qc2, uint64_t addr, uint64_t *l1_idx, uint64_t *l2_idx, uint64_t *offset) {
 	if(!qc2 || !l1_idx || !l2_idx || !offset) 
 		return -1;
 	*offset = addr & (qc2->cluster_size - 1);
@@ -189,13 +189,13 @@ done:
 }
 
 
-static int v3_qcow2_read_one_cluster(v3_qcow2_t *pf, void *buff, uint64_t pos, int len) {
+static int v3_qcow2_read_cluster(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len) {
 	int ret = 0;
 	uint64_t l1_idx = 0, l2_idx = 0, offset = 0;
 	uint64_t file_offset = 0;
 	if(!pf || !buff || !len)
 		return -1;
-	ret = v3_addr_split(pf, pos, &l1_idx, &l2_idx, &offset);
+	ret = v3_qcow2_addr_split(pf, pos, &l1_idx, &l2_idx, &offset);
 	if(ret)
 		return -1;
 	file_offset = v3_qcow2_get_cluster_offset(pf, l1_idx, l2_idx, offset);
@@ -206,11 +206,13 @@ static int v3_qcow2_read_one_cluster(v3_qcow2_t *pf, void *buff, uint64_t pos, i
 			return -1;
 	} else if(pf->backing_qcow2) {
 		return v3_qcow2_read(pf->backing_qcow2, buff, pos, len);
+	} else {
+		memset(buff, 0, len);
 	}
 	return 0;
 }
 
-int v3_qcow2_read(v3_qcow2_t *pf, void *buff, uint64_t pos, int len) {
+int v3_qcow2_read(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len) {
 	if(!pf || !buff || !len)
 		return -1;
 	uint64_t next_addr, cur_len;
@@ -220,12 +222,43 @@ int v3_qcow2_read(v3_qcow2_t *pf, void *buff, uint64_t pos, int len) {
 		cur_len = next_addr - pos;
 		cur_len = cur_len < len ? cur_len : len;
 		printf("pos=%lu, len=%lu\n", pos, cur_len);
-		ret = v3_qcow2_read_one_cluster(pf, buff, pos, cur_len);
+		ret = v3_qcow2_read_cluster(pf, buff, pos, cur_len);
 		if(ret)
 			return -1;
-		buff = (uint8_t*)buff + cur_len;
+		buff += cur_len;
 		pos += cur_len;
 		len -= cur_len;
 	}
+	return 0;
+}
+
+/*
+ * only allocate one cluster
+ */
+static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
+	uint64_t res = 0, l1_idx = 0, l2_idx = 0, offset = 0;
+	int ret = 0;
+	if(!pf)
+		return res;
+	
+	ret = v3_qcow2_addr_split(pf, pos, &l1_idx, &l2_idx, &offset);
+	if(ret)
+		return res;
+	res = v3_qcow2_get_cluster_offset(pf, l1_idx, l2_idx, offset);
+	if(res)
+		goto done;
+	/*
+	 * need to allocate a new cluster for write
+	 * also need to update the l1 and l2 table
+	 */
+done:
+	return res;
+}
+
+
+int v3_qcow2_write(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len) {
+	if(!pf || !buff || !len) 
+		return -1;
+
 	return 0;
 }
