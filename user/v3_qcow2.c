@@ -158,6 +158,7 @@ void v3_qcow2_close(v3_qcow2_t *pf) {
 static uint64_t v3_qcow2_get_cluster_offset(v3_qcow2_t *qc, uint64_t l1_idx, uint64_t l2_idx, uint64_t offset) {
 	uint64_t res = 0;
 	uint64_t l1_val = 0, l2_val = 0;
+	v3_qcow2_table_entry_t *ent = NULL;
 	int ret = 0;
 	if(!qc)
 		goto done;
@@ -166,15 +167,19 @@ static uint64_t v3_qcow2_get_cluster_offset(v3_qcow2_t *qc, uint64_t l1_idx, uin
 	if(ret != sizeof(uint64_t))
 		goto done;
 	l1_val = be64toh(l1_val);
-	l1_val = l1_val & ((((uint64_t)1)<<62)-1);
-	if(!l1_val)
+	ent = (v3_qcow2_table_entry_t*)&l1_val;
+//	l1_val = l1_val & ((((uint64_t)1)<<62)-1);
+	if(!ent->offset)
 		goto done;
-	lseek(qc->fd, l2_idx * sizeof(uint64_t) + l1_val, SEEK_SET);
+	//lseek(qc->fd, l2_idx * sizeof(uint64_t) + l1_val, SEEK_SET);
+	lseek(qc->fd, l2_idx * sizeof(uint64_t) + ent->offset, SEEK_SET);
 	ret = read(qc->fd, (void*)&l2_val, sizeof(uint64_t));
 	if(ret != sizeof(uint64_t))
 		goto done;
 	l2_val = be64toh(l2_val);
-	res = l2_val & ((((uint64_t)1)<<62)-1);
+	ent = (v3_qcow2_table_entry_t*)&l2_val;
+//	res = l2_val & ((((uint64_t)1)<<62)-1);
+	res = ent->offset;
 done:
 	return res;
 }
