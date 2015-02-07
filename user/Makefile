@@ -1,5 +1,6 @@
 
 
+CFLAGS = -g -O0
 DEPS := v3_qcow2.h
 
 all: qcow2_user

@@ -1,13 +1,14 @@
 #ifndef __V3_QCOW2__
 
-
 #include <stdint.h>
 
-#define V3_PACKED __attribute__((packed))
+#define __DEBUG__
 
-typedef struct v3_qcow2 {
-	int fd;
-} v3_qcow2_t;
+
+#define V3_PACKED __attribute__((packed))
+//#define be32_to_cpu	ntohl
+//#include <endian.h>
+#define QCOW2_MAGIC	(('Q'<<24) | ('F'<<16) | ('I'<<8) | (0xfb))
 
 typedef struct v3_qcow2_header {
 	uint32_t magic;
@@ -47,11 +48,34 @@ typedef struct v3_qcow2_snapshot_header {
 	uint32_t extra_data_size;
 } V3_PACKED v3_qcow2_snapshot_header_t;
 
+typedef struct v3_qcow2 {
+	int fd;
+	struct v3_qcow2 *backing_qcow2;
+	char *backing_file_name;
+	uint64_t cluster_size;
+	uint32_t l1_bits;
+	uint64_t l1_mask;
+	uint32_t l2_bits;
+	uint64_t l2_mask;
+	v3_qcow2_header_t header;
+} v3_qcow2_t;
+
+
+typedef struct v3_qcow2_table_entry {
+	uint64_t offset: 62;
+	uint8_t compressed: 1;
+	uint8_t copied: 1;
+} v3_qcow2_table_entry_t;
+
+
+
 v3_qcow2_t *v3_qcow2_open(const char *path);
 
 void v3_qcow2_close(v3_qcow2_t *pf);
 
-int v3_qcow2_read(v3_qcow2_t *pf, void *buff, int pos, int len);
+int v3_qcow2_read(v3_qcow2_t *pf, void *buff, uint64_t pos, int len);
+
+int v3_addr_split(v3_qcow2_t *qc2, uint64_t addr, uint64_t *l1_idx, uint64_t *l2_idx, uint64_t *offset);
 
 
 #endif // __V3_QCOW2__
