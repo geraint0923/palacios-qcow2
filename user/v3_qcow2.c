@@ -9,6 +9,39 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static inline uint64_t v3_qcow2_get_cluster_index(v3_qcow2_t *pf, uint64_t file_pos) {
+	if(!pf)
+		return 0;
+	return file_pos >> pf->header.cluster_bits;
+}
+
+static int v3_qcow2_get_refcount(v3_qcow2_t *pf, uint64_t file_pos) {
+	int res = -1, ret = 0;
+	uint16_t val = 0;
+	uint64_t idx = 0, table_idx = 0, block_idx = 0, block_offset = 0;
+	if(!pf)
+		return res;
+	idx = v3_qcow2_get_cluster_index(pf, file_pos);
+	if(!idx)
+		return res;
+	block_idx = idx & pf->refcount_block_mask;
+	idx >>= pf->refcount_block_bits;
+	table_idx = idx & pf->refcount_table_mask;
+
+	lseek(pf->fd, pf->header.refcount_table_offset + table_idx * sizeof(uint64_t), SEEK_SET);
+	ret = read(pf->fd, (uint8_t*)&block_offset, sizeof(uint64_t));
+	if(ret != sizeof(uint64_t))
+		return -1;
+	block_offset = be64toh(block_offset);
+	lseek(pf->fd, block_offset + block_idx * sizeof(uint16_t), SEEK_SET);
+	ret = read(pf->fd, (uint8_t*)&val, sizeof(uint16_t));
+	if(ret != sizeof(uint16_t))
+		return -1;
+	val = be16toh(val);
+	
+	return val;
+}
+
 int v3_qcow2_addr_split(v3_qcow2_t *qc2, uint64_t addr, uint64_t *l1_idx, uint64_t *l2_idx, uint64_t *offset) {
 	if(!qc2 || !l1_idx || !l2_idx || !offset) 
 		return -1;
@@ -121,6 +154,11 @@ v3_qcow2_t *v3_qcow2_open(const char *path) {
 
 	res->header.refcount_table_offset = be64toh(res->header.refcount_table_offset);
 	res->header.refcount_table_clusters = be32toh(res->header.refcount_table_clusters);
+	
+	res->refcount_block_bits = res->header.cluster_bits - 1;
+	res->refcount_block_mask = (1LL<<res->refcount_block_bits) - 1;
+	res->refcount_table_bits = 8 * sizeof(uint64_t) - res->refcount_block_bits;
+	res->refcount_table_mask = (1LL<<res->refcount_table_bits) - 1;
 
 	res->header.nb_snapshots = be32toh(res->header.nb_snapshots);
 	res->header.snapshots_offset = be64toh(res->header.snapshots_offset);
@@ -209,6 +247,7 @@ static int v3_qcow2_read_cluster(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, in
 	} else {
 		memset(buff, 0, len);
 	}
+	printf("refcount: %d\n", v3_qcow2_get_refcount(pf, file_offset));
 	return 0;
 }
 

@@ -8,7 +8,10 @@
 #define V3_PACKED __attribute__((packed))
 //#define be32_to_cpu	ntohl
 //#include <endian.h>
-#define QCOW2_MAGIC	(('Q'<<24) | ('F'<<16) | ('I'<<8) | (0xfb))
+#define QCOW2_MAGIC		(('Q'<<24) | ('F'<<16) | ('I'<<8) | (0xfb))
+
+#define QCOW2_COPIED		((uint64_t)1<<63)
+#define QCOW2_COMPRESSEd	((uint64_t)1<<62)
 
 typedef struct v3_qcow2_header {
 	uint32_t magic;
@@ -57,6 +60,10 @@ typedef struct v3_qcow2 {
 	uint64_t l1_mask;
 	uint32_t l2_bits;
 	uint64_t l2_mask;
+	uint32_t refcount_block_bits;
+	uint64_t refcount_block_mask;
+	uint32_t refcount_table_bits;
+	uint64_t refcount_table_mask;
 	v3_qcow2_header_t header;
 } v3_qcow2_t;
 
