@@ -64,6 +64,7 @@ typedef struct v3_qcow2 {
 	uint64_t refcount_block_mask;
 	uint32_t refcount_table_bits;
 	uint64_t refcount_table_mask;
+	uint64_t free_cluster_index;
 	v3_qcow2_header_t header;
 } v3_qcow2_t;
 

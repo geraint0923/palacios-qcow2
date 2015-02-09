@@ -15,31 +15,75 @@ static inline uint64_t v3_qcow2_get_cluster_index(v3_qcow2_t *pf, uint64_t file_
 	return file_pos >> pf->header.cluster_bits;
 }
 
-static int v3_qcow2_get_refcount(v3_qcow2_t *pf, uint64_t file_pos) {
+static int v3_qcow2_get_refcount(v3_qcow2_t *pf, uint64_t idx) {
 	int res = -1, ret = 0;
 	uint16_t val = 0;
-	uint64_t idx = 0, table_idx = 0, block_idx = 0, block_offset = 0;
+	uint64_t table_idx = 0, block_idx = 0, block_offset = 0;
 	if(!pf)
 		return res;
-	idx = v3_qcow2_get_cluster_index(pf, file_pos);
+	//idx = v3_qcow2_get_cluster_index(pf, file_pos);
+	/*
 	if(!idx)
 		return res;
+	*/
 	block_idx = idx & pf->refcount_block_mask;
 	idx >>= pf->refcount_block_bits;
 	table_idx = idx & pf->refcount_table_mask;
 
 	lseek(pf->fd, pf->header.refcount_table_offset + table_idx * sizeof(uint64_t), SEEK_SET);
 	ret = read(pf->fd, (uint8_t*)&block_offset, sizeof(uint64_t));
+	// FIXME: how to deal with the wrong position
 	if(ret != sizeof(uint64_t))
-		return -1;
+		return 0;
 	block_offset = be64toh(block_offset);
 	lseek(pf->fd, block_offset + block_idx * sizeof(uint16_t), SEEK_SET);
 	ret = read(pf->fd, (uint8_t*)&val, sizeof(uint16_t));
+	// FIXME: how to deal with the wrong position
 	if(ret != sizeof(uint16_t))
-		return -1;
+		return 0;
 	val = be16toh(val);
 	
 	return val;
+}
+
+static int v3_qcow2_get_refcount_by_file_position(v3_qcow2_t *pf, uint64_t file_pos) {
+	int res = -1;
+	uint64_t idx = 0;
+	if(!pf)
+		return res;
+	idx = v3_qcow2_get_cluster_index(pf, file_pos);
+	return v3_qcow2_get_refcount(pf, idx);
+}
+
+/*
+ * to allocate the contiguous clusters
+ * return the cluster index in the QCOW2 file
+ * return positive if successfully, otherwise zero(0)
+ */
+static uint64_t v3_qcow2_alloc_clusters(v3_qcow2_t *pf, uint32_t nb_clusters) {
+	uint32_t i;
+	int refcount = 0;
+	uint64_t idx = 0, ret_idx = 0;
+	
+	if(!nb_clusters)
+		return 0;
+	if(!pf)
+		return 0;
+	/*
+	 * referenced the algorithm from Qemu
+	 */
+retry:
+	ret_idx = pf->free_cluster_index;
+	for(i = 0; i < nb_clusters; i++) {
+		idx = pf->free_cluster_index++;
+		refcount = v3_qcow2_get_refcount(pf, idx);
+		if(refcount < 0) {
+			return 0;
+		} else if(refcount) {
+			goto retry;
+		}
+	}
+	return ret_idx;
 }
 
 int v3_qcow2_addr_split(v3_qcow2_t *qc2, uint64_t addr, uint64_t *l1_idx, uint64_t *l2_idx, uint64_t *offset) {
@@ -54,7 +98,7 @@ int v3_qcow2_addr_split(v3_qcow2_t *qc2, uint64_t addr, uint64_t *l1_idx, uint64
 }
 
 v3_qcow2_t *v3_qcow2_open(const char *path) {
-	int ret = 0;
+	int ret = 0, idx;
 	if(!path)
 		return NULL;
 	v3_qcow2_t *res = (v3_qcow2_t*)malloc(sizeof(v3_qcow2_t));
@@ -172,7 +216,20 @@ v3_qcow2_t *v3_qcow2_open(const char *path) {
 	printf("nb_snapshots: %d\n", res->header.nb_snapshots);
 	printf("snapshots_offset: %lu\n", res->header.snapshots_offset);
 #endif
+	res->free_cluster_index = 1;
 
+	while(1) {
+		if(v3_qcow2_get_refcount(res, res->free_cluster_index)) 
+			res->free_cluster_index++;
+		else 
+			break;
+	}
+
+	printf("free_cluster_index = %lu\n", res->free_cluster_index);
+
+	/*
+	 * TODO: initialize the free cluster index to a reasonable value
+	 */
 
 	return res;
 
@@ -243,11 +300,11 @@ static int v3_qcow2_read_cluster(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, in
 		if(ret != len)
 			return -1;
 	} else if(pf->backing_qcow2) {
-		return v3_qcow2_read(pf->backing_qcow2, buff, pos, len);
+		return v3_qcow2_read_cluster(pf->backing_qcow2, buff, pos, len);
 	} else {
 		memset(buff, 0, len);
 	}
-	printf("refcount: %d\n", v3_qcow2_get_refcount(pf, file_offset));
+	printf("refcount: %d\n", v3_qcow2_get_refcount_by_file_position(pf, file_offset));
 	return 0;
 }
 
