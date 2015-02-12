@@ -1,6 +1,7 @@
 #ifndef __V3_QCOW2__
 
 #include <stdint.h>
+#include <stddef.h>
 
 #define __DEBUG__
 
@@ -10,8 +11,8 @@
 //#include <endian.h>
 #define QCOW2_MAGIC		(('Q'<<24) | ('F'<<16) | ('I'<<8) | (0xfb))
 
-#define QCOW2_COPIED		((uint64_t)1<<63)
-#define QCOW2_COMPRESSEd	((uint64_t)1<<62)
+#define QCOW2_COPIED		(1ULL<<63)
+#define QCOW2_COMPRESSED	(1ULL<<62)
 
 typedef struct v3_qcow2_header {
 	uint32_t magic;
@@ -86,6 +87,8 @@ int v3_qcow2_read(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len);
 int v3_qcow2_write(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len);
 
 int v3_addr_split(v3_qcow2_t *qc2, uint64_t addr, uint64_t *l1_idx, uint64_t *l2_idx, uint64_t *offset);
+
+uint64_t v3_qcow2_get_capacity(v3_qcow2_t *pf);
 
 
 #endif // __V3_QCOW2__
