@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
 	uint64_t offset = strtoull(argv[3], NULL, 10);
 	uint64_t len = strtoull(argv[4], NULL, 10);
 	int i;
-	unsigned char *buff = (unsigned char*)malloc(len);
+	uint8_t *buff = (unsigned char*)malloc(len);
 	for(i = 0; i < len; i++) 
 		buff[i] = 0;
 	if(!buff) {
@@ -54,7 +54,11 @@ int main(int argc, char **argv) {
 			printf("\n");
 			break;
 		case MODE_WRITE:
-			printf("unsupported currently\n");
+			for(i = 0; i < len; i++) {
+				buff[i] = i % 256;
+			}
+			v3_qcow2_write(qcow2, (void*)buff, offset, len);
+			//printf("unsupported currently\n");
 			break;
 		default:
 			printf("error mode: %d\n", mode);
