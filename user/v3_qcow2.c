@@ -506,8 +506,10 @@ static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
 	// otherwise we should copy
 	// do it later
 	res = v3_qcow2_get_cluster_offset(pf, l1_idx, l2_idx, offset);
-	if(res)
+	if(res) {
+		cluster_offset = res;
 		goto done;
+	}
 
 	/*
 	 * need to allocate a new cluster for write
