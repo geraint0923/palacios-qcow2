@@ -270,6 +270,9 @@ static uint64_t v3_qcow2_get_cluster_offset(v3_qcow2_t *qc, uint64_t l1_idx, uin
 	int ret = 0;
 	if(!qc)
 		goto done;
+	if(l1_idx >= qc->header.l1_size) {
+		return 0ULL;
+	}
 	lseek(qc->fd, l1_idx * sizeof(uint64_t) + qc->header.l1_table_offset, SEEK_SET);
 	ret = read(qc->fd, (void*)&l1_val, sizeof(uint64_t));
 	if(ret != sizeof(uint64_t))
@@ -339,7 +342,34 @@ int v3_qcow2_read(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len) {
 	return 0;
 }
 
-static int v3_qcow2_update_refcount(v3_qcow2_t *pf, uint64_t cluster_idx, int count);
+// in this function, we assmue we must have the corresponding refcount block
+// so we will not allocate the refcount block here
+static int v3_qcow2_update_refcount(v3_qcow2_t *pf, uint64_t cluster_idx, int count) {
+	uint64_t table_idx = 0, block_idx = 0, block_offset = 0, idx = cluster_idx;
+	int ret = 0;
+	uint16_t val = count;
+	if(!pf)
+		return -1;
+	
+	block_idx = idx & pf->refcount_block_mask;
+	idx >>= pf->refcount_block_bits;
+	table_idx = idx & pf->refcount_table_mask;
+	lseek(pf->fd, pf->header.refcount_table_offset + table_idx * sizeof(uint64_t), SEEK_SET);
+	ret = read(pf->fd, (uint8_t*)&block_offset, sizeof(uint64_t));
+	if(ret != sizeof(uint64_t) || !block_offset) {
+		printf("something wrong with update refcount, exit\n");
+		exit(-1);
+	}
+	block_offset = be64toh(block_offset);
+	lseek(pf->fd, block_offset + block_idx * sizeof(uint16_t), SEEK_SET);
+	val = htobe16(val);
+	ret = write(pf->fd, (uint8_t*)&val, sizeof(uint16_t));
+	if(ret != sizeof(uint16_t)) {
+		printf("write failed when update refcount, exit\n");
+		exit(-1);
+	}
+	return 0;
+}
 
 // in this function, we need to resolve the circular dependency when the refcount itself is not allocated
 // since for cluster_bits==16, it needs 65536G to use more than one clusters to contain all the refcount 
@@ -421,34 +451,7 @@ retry:
 	return res;
 }
 
-// in this function, we assmue we must have the corresponding refcount block
-// so we will not allocate the refcount block here
-static int v3_qcow2_update_refcount(v3_qcow2_t *pf, uint64_t cluster_idx, int count) {
-	uint64_t table_idx = 0, block_idx = 0, block_offset = 0, idx = cluster_idx;
-	int ret = 0;
-	uint16_t val = count;
-	if(!pf)
-		return -1;
-	
-	block_idx = idx & pf->refcount_block_mask;
-	idx >>= pf->refcount_block_bits;
-	table_idx = idx & pf->refcount_table_mask;
-	lseek(pf->fd, pf->header.refcount_table_offset + table_idx * sizeof(uint64_t), SEEK_SET);
-	ret = read(pf->fd, (uint8_t*)&block_offset, sizeof(uint64_t));
-	if(ret != sizeof(uint64_t) || !block_offset) {
-		printf("something wrong with update refcount, exit\n");
-		exit(-1);
-	}
-	block_offset = be64toh(block_offset);
-	lseek(pf->fd, block_offset + block_idx * sizeof(uint16_t), SEEK_SET);
-	val = htobe16(val);
-	ret = write(pf->fd, (uint8_t*)&val, sizeof(uint16_t));
-	if(ret != sizeof(uint16_t)) {
-		printf("write failed when update refcount, exit\n");
-		exit(-1);
-	}
-	return 0;
-}
+
 
 static int v3_qcow2_increase_refcount(v3_qcow2_t *pf, uint64_t cluster_idx) {
 	int refcount = 0;
@@ -515,13 +518,13 @@ static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
 	 * need to allocate a new cluster for write
 	 * also need to update the l1 and l2 table
 	 */
-	if(l1_idx >= pf->header.l1_size) {
+	if(1/*l1_idx >= pf->header.l1_size*/) {
 		/*
 		 * need to allocate a new l1 entry
 		 * for simplicity, only allow 2^(cluster_bits-3) entry in l1 table
 		 */
 		l2_cluster_idx = v3_qcow2_alloc_clusters(pf, 1);
-		l2_cluster_offset = (l2_cluster_idx << pf->cluster_size);
+		l2_cluster_offset = (l2_cluster_idx << pf->header.cluster_bits);
 		// increase the reference count for this cluster
 		v3_qcow2_increase_refcount(pf, l2_cluster_idx);
 		memset(init_buff, 0, INIT_BUFF_SIZE);
@@ -531,32 +534,34 @@ static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
 		}
 		/*
 		 * set all the slot in gap to zero
+		 * not necessary since the l1_size must be larger than allowed size
 		 */
+		/*
 		lseek(pf->fd, pf->header.l1_table_offset + sizeof(uint64_t) * pf->header.l1_size, SEEK_SET);
 		while(l1_idx > pf->header.l1_size) {
 			ret = write(pf->fd, (uint8_t*)&zero_tmp, sizeof(uint64_t));
 			pf->header.l1_size++;
 		}
+		*/
 		/*
 		 * set the copied bit
 		 */
 		l2_cluster_offset |= QCOW2_COPIED;
 		l2_cluster_offset = htobe64(l2_cluster_offset);
-		//lseek(pf->fd, pf->header.l1_table_offset + sizeof(uint64_t) * l1_idx, SEEK_SET);
+		lseek(pf->fd, pf->header.l1_table_offset + sizeof(uint64_t) * l1_idx, SEEK_SET);
 		ret = write(pf->fd, &l2_cluster_offset, sizeof(uint64_t));
 		/*
 		 * update the header and write the update to file
+		 * not necessary either
 		 */
+		/*
 		pf->header.l1_size = l1_idx + 1;
 		l2_cluster_offset = htobe64(pf->header.l1_size);
 		lseek(pf->fd, offsetof(v3_qcow2_header_t, l1_size), SEEK_SET);
 		ret = write(pf->fd, &l2_cluster_offset, sizeof(uint64_t));
-		// TODO: increase the refcount of this newly allocated cluster
+		*/
+		// DONE: TODO: increase the refcount of this newly allocated cluster
 		// need to do it later
-	} else if(l1_idx < pf->header.l1_size) {
-		/*
-		 * do nothing because the l2 cluster has been allocated
-		 */
 	} else {
 		/*
 		 * something wrong
