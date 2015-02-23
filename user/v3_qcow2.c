@@ -458,6 +458,7 @@ static int v3_qcow2_increase_refcount(v3_qcow2_t *pf, uint64_t cluster_idx) {
 	if(!pf)
 		return -1;
 	refcount = v3_qcow2_get_refcount(pf, cluster_idx);
+	printf("***increase!!\n");
 	if(refcount <= 0) {
 		// execute to here means that no cluster block entry is allocated
 		// we need to allocate the entry here
@@ -494,7 +495,7 @@ static int v3_qcow2_decrease_refcount(v3_qcow2_t *pf, uint64_t cluster_idx) {
  * only allocate one cluster if necessary
  */
 static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
-	uint64_t res = 0, l1_idx = 0, l2_idx = 0, offset = 0, l2_cluster_offset, done_bytes, zero_tmp = 0;
+	uint64_t res = 0, l1_idx = 0, l2_idx = 0, offset = 0, l2_cluster_offset, done_bytes;
 	uint64_t l2_cluster_idx;
 	uint64_t cluster_offset = 0;
 	int ret = 0;
@@ -575,6 +576,8 @@ static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
 	/*
 	 * begin to retrieve cluster_offset
 	 */
+	// adjust the l2_cluster_offset to the right entry address
+	l2_cluster_offset += sizeof(uint64_t) * l2_idx;
 	lseek(pf->fd, l2_cluster_offset, SEEK_SET);
 	ret = read(pf->fd, (uint8_t*)&cluster_offset, sizeof(uint64_t));
 	cluster_offset = be64toh(cluster_offset) & ~(QCOW2_COPIED | QCOW2_COMPRESSED);
@@ -584,24 +587,25 @@ static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
 		 */
 		l2_cluster_idx = v3_qcow2_alloc_clusters(pf, 1);
 		cluster_offset = (l2_cluster_idx << pf->header.cluster_bits);
+		// TODO: initialization
+		// initialize the cluster with the original data
+		data_buff = (uint8_t*)malloc(pf->cluster_size);
+		if(data_buff) {
+			pos = (pos >> pf->header.cluster_bits) << pf->header.cluster_bits;
+			v3_qcow2_read_cluster(pf, data_buff, pos, pf->cluster_size);
+			lseek(pf->fd, cluster_offset, SEEK_SET);
+			ret = write(pf->fd, data_buff, pf->cluster_size);
+			free(data_buff);
+		} else {
+			printf("failed to initialize the original data\n");
+		}
 		offset = htobe64(cluster_offset | QCOW2_COPIED);
 		lseek(pf->fd, l2_cluster_offset, SEEK_SET);
 		ret = write(pf->fd, (uint8_t*)&offset, sizeof(uint64_t));
 		// TODO: increase refcount of the new-allocated cluster
 		v3_qcow2_increase_refcount(pf, l2_cluster_idx);
 	}
-	// TODO: initialization
-	// initialize the cluster with the original data
-	data_buff = (uint8_t*)malloc(pf->cluster_size);
-	if(data_buff) {
-		pos = (pos >> pf->header.cluster_bits) << pf->header.cluster_bits;
-		v3_qcow2_read_cluster(pf, data_buff, pos, pf->cluster_size);
-		lseek(pf->fd, cluster_offset, SEEK_SET);
-		ret = write(pf->fd, data_buff, pf->cluster_size);
-		free(data_buff);
-	} else {
-		printf("failed to initialize the original data\n");
-	}
+
 done:
 	return cluster_offset;
 }
