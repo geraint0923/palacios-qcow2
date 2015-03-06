@@ -92,6 +92,7 @@ retry:
 			goto retry;
 		}
 	}
+	printf("alloc cluster index => %lu %d\n", ret_idx, nb_clusters);
 	return ret_idx;
 }
 
@@ -519,7 +520,10 @@ static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
 	 * need to allocate a new cluster for write
 	 * also need to update the l1 and l2 table
 	 */
-	if(1/*l1_idx >= pf->header.l1_size*/) {
+	lseek(pf->fd, pf->header.l1_table_offset + sizeof(uint64_t) * l1_idx, SEEK_SET);
+	ret = read(pf->fd, (uint8_t*)&l2_cluster_offset, sizeof(uint64_t));
+	l2_cluster_offset = be64toh(l2_cluster_offset) & ~(QCOW2_COPIED | QCOW2_COMPRESSED);
+	if(!l2_cluster_offset/*l1_idx >= pf->header.l1_size*/) {
 		/*
 		 * need to allocate a new l1 entry
 		 * for simplicity, only allow 2^(cluster_bits-3) entry in l1 table
