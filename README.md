@@ -2,6 +2,7 @@
 QCOW2 implementation in Palacios
 
 Currently supported features:
+
 1. Read
 2. Write
 3. Copy-on-write
