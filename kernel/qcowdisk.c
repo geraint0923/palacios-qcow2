@@ -392,7 +392,7 @@ void v3_qcow2_close(v3_qcow2_t *pf) {
 	if(pf->backing_file_name)
 		V3_Free(pf->backing_file_name);
 	if(pf->backing_qcow2)
-		V3_Free(pf->backing_qcow2);
+		v3_qcow2_close(pf->backing_qcow2);
 
 	V3_Free(pf);
 }
@@ -846,9 +846,7 @@ static struct v3_dev_blk_ops blk_ops = {
 
 
 static int disk_free(struct disk_state * disk) {
-    v3_file_close(disk->fd);
-    
-    V3_Free(disk);
+    v3_qcow2_close( (v3_qcow2_t*)disk );
     return 0;
 }
 
