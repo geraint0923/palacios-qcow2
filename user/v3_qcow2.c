@@ -259,7 +259,7 @@ void v3_qcow2_close(v3_qcow2_t *pf) {
 	if(pf->backing_file_name)
 		free(pf->backing_file_name);
 	if(pf->backing_qcow2)
-		free(pf->backing_qcow2);
+		v3_qcow2_close(pf->backing_qcow2);
 
 	free(pf);
 }
