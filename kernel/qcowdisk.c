@@ -10,8 +10,8 @@
  * Copyright (c) 2008, The V3VEE Project <http://www.v3vee.org> 
  * All rights reserved.
  *
- * Author: Yang Yang <geraint0923@gmail.com>
- *	   Weixiao Fu <weixiaofu2014@u.northwestern.edu>
+ * Author: Yang Yang	<geraint0923@gmail.com>
+ *         Weixiao Fu	<weixiaofu2014@u.northwestern.edu>
  *
  * This is free software.  You are permitted to use,
  * redistribute, and modify it as specified in the file "V3VEE_LICENSE".
@@ -29,8 +29,6 @@
 #endif
 
 #define V3_PACKED __attribute__((packed))
-//#define be32_to_cpu	ntohl
-//#include <endian.h>
 #define QCOW2_MAGIC		(('Q'<<24) | ('F'<<16) | ('I'<<8) | (0xfb))
 
 #define QCOW2_COPIED		(1ULL<<63)
@@ -38,12 +36,7 @@
 #define INIT_BUFF_SIZE	(512)
 #define printf(...) 
 
-struct disk_state {
-    uint64_t capacity; // in bytes
-
-    v3_file_t fd;
-};
-
+// the header structure for QCOW2
 typedef struct v3_qcow2_header {
 	uint32_t magic;
 	uint32_t version;
@@ -67,6 +60,7 @@ typedef struct v3_qcow2_header {
 
 } V3_PACKED v3_qcow2_header_t;
 
+// the header structure for each QCOW2 snapshot
 typedef struct v3_qcow2_snapshot_header {
 	uint64_t l1_table_offset;
 	uint32_t l1_size;
@@ -82,6 +76,7 @@ typedef struct v3_qcow2_snapshot_header {
 	uint32_t extra_data_size;
 } V3_PACKED v3_qcow2_snapshot_header_t;
 
+// the private structure used by QCOW2 implementation
 typedef struct v3_qcow2 {
 	v3_file_t fd;
 	struct v3_qcow2 *backing_qcow2;
@@ -99,22 +94,14 @@ typedef struct v3_qcow2 {
 	v3_qcow2_header_t header;
 } v3_qcow2_t;
 
-
-/*
-	just for debug ussage
-*/
-static uint64_t my_file_write(v3_file_t file, uint8_t *buf, uint64_t len, uint64_t off) {
-	PrintDebug(VM_NONE, VCORE_NONE, "MY-QCOW Writing %llu  to %llu\n", len, off);
-	return v3_file_write(file, buf, len, off);
-}
-
-
 typedef struct v3_qcow2_table_entry {
 	uint64_t offset: 62;
 	uint8_t compressed: 1;
 	uint8_t copied: 1;
 } v3_qcow2_table_entry_t;
 
+
+// our implementations for Big/Little Endian conversion
 static inline uint16_t be16toh(uint16_t v) {
 	return ((v&0xff)<<8) | ((v&0xff00)>>8);
 }
@@ -151,11 +138,6 @@ static int v3_qcow2_get_refcount(v3_qcow2_t *pf, uint64_t idx) {
 	uint64_t table_idx = 0, block_idx = 0, block_offset = 0;
 	if(!pf)
 		return res;
-	//idx = v3_qcow2_get_cluster_index(pf, file_pos);
-	/*
-	if(!idx)
-		return res;
-	*/
 	block_idx = idx & pf->refcount_block_mask;
 	idx >>= pf->refcount_block_bits;
 	table_idx = idx & pf->refcount_table_mask;
@@ -176,6 +158,12 @@ static int v3_qcow2_get_refcount(v3_qcow2_t *pf, uint64_t idx) {
 	
 	return val;
 }
+
+/*
+ * this function is a wrap of v3_qcow2_get_refcount
+ * takes file offset and returns the reference count
+ * it is commented to avoid compile warning
+ */
 /*
 static int v3_qcow2_get_refcount_by_file_position(v3_qcow2_t *pf, uint64_t file_pos) {
 	int res = -1;
@@ -186,6 +174,7 @@ static int v3_qcow2_get_refcount_by_file_position(v3_qcow2_t *pf, uint64_t file_
 	return v3_qcow2_get_refcount(pf, idx);
 }
 */
+
 /*
  * to allocate the contiguous clusters
  * return the cluster index in the QCOW2 file
@@ -246,9 +235,7 @@ v3_qcow2_t *v3_qcow2_open(struct v3_vm_info* vm, char *path, int flags) {
 		goto clean_mem;
 	res->header.magic = be32toh(res->header.magic);
 	if(res->header.magic != QCOW2_MAGIC) {
-#ifdef __DEBUG__
 		printf("wrong magic\n");
-#endif
 		goto clean_file;
 	} 
 #ifdef __DEBUG__
@@ -258,9 +245,7 @@ v3_qcow2_t *v3_qcow2_open(struct v3_vm_info* vm, char *path, int flags) {
 #endif
 	res->header.version = be32toh(res->header.version);
 	if(res->header.version < 2) {
-#ifdef __DEBUG__
 		printf("wrong version: %d\n", res->header.version);
-#endif
 		goto clean_file;
 	}
 #ifdef __DEBUG__
@@ -277,30 +262,22 @@ v3_qcow2_t *v3_qcow2_open(struct v3_vm_info* vm, char *path, int flags) {
 #endif
 		res->backing_file_name = (char*)V3_Malloc(res->header.backing_file_size + 1);
 		if(!res->backing_file_name) {
-#ifdef __DEBUG__
 			printf("failed to allocate memory for backing file name\n");
-#endif
 			goto clean_file;
 		}
 		res->backing_file_name[res->header.backing_file_size] = 0;
 		// FIXME: check the return value of lseek
 		ret = v3_file_read(res->fd, (void*)res->backing_file_name, res->header.backing_file_size, res->header.backing_file_offset);
 		if(ret != res->header.backing_file_size) {
-#ifdef __DEBUG__
 			printf("failed to read backing file name from %s\n", path);
-#endif
 			V3_Free(res->backing_file_name);
 			goto clean_file;
 		}
 		res->backing_qcow2 = v3_qcow2_open(vm, res->backing_file_name, flags);
 		if(res->backing_qcow2) {
-#ifdef __DEBUG__
 			printf("load backing file successfully\n");
-#endif
 		} else {
-#ifdef __DEBUG__
 			printf("failed to load backing file, exit\n");
-#endif
 			return NULL;
 		}
 #ifdef __DEBUG__
@@ -359,6 +336,7 @@ v3_qcow2_t *v3_qcow2_open(struct v3_vm_info* vm, char *path, int flags) {
 #endif
 	res->free_cluster_index = 1;
 
+	// TODO: initialize the free cluster index to a reasonable value
 	while(1) {
 		if(v3_qcow2_get_refcount(res, res->free_cluster_index)) 
 			res->free_cluster_index++;
@@ -366,13 +344,6 @@ v3_qcow2_t *v3_qcow2_open(struct v3_vm_info* vm, char *path, int flags) {
 			break;
 	}
 
-#ifdef __DEBUG__
-	printf("free_cluster_index = %lu\n", res->free_cluster_index);
-#endif
-
-	/*
-	 * TODO: initialize the free cluster index to a reasonable value
-	 */
 
 	return res;
 
@@ -445,9 +416,6 @@ static int v3_qcow2_read_cluster(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, in
 	} else {
 		memset(buff, 0, len);
 	}
-#ifdef __DEBUG__
-	printf("refcount: %d\n", v3_qcow2_get_refcount_by_file_position(pf, file_offset));
-#endif
 	return 0;
 }
 
@@ -460,9 +428,7 @@ int v3_qcow2_read(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len) {
 		next_addr = (pos + pf->cluster_size) & ~(pf->cluster_size - 1);
 		cur_len = next_addr - pos;
 		cur_len = cur_len < len ? cur_len : len;
-#ifdef __DEBUG__
-		printf("pos=%lu, len=%lu\n", pos, cur_len);
-#endif
+		//printf("pos=%lu, len=%lu\n", pos, cur_len);
 		ret = v3_qcow2_read_cluster(pf, buff, pos, cur_len);
 		if(ret)
 			return -1;
@@ -487,18 +453,14 @@ static int v3_qcow2_update_refcount(v3_qcow2_t *pf, uint64_t cluster_idx, int co
 	table_idx = idx & pf->refcount_table_mask;
 	ret = v3_file_read(pf->fd, (uint8_t*)&block_offset, sizeof(uint64_t), pf->header.refcount_table_offset + table_idx * sizeof(uint64_t));
 	if(ret != sizeof(uint64_t) || !block_offset) {
-#ifdef __DEBUG__
 		printf("something wrong with update refcount, exit\n");
-#endif
 		return -1;
 	}
 	block_offset = be64toh(block_offset);
 	val = htobe16(val);
 	ret = v3_file_write(pf->fd, (uint8_t*)&val, sizeof(uint16_t), block_offset + block_idx * sizeof(uint16_t));
 	if(ret != sizeof(uint16_t)) {
-#ifdef __DEBUG__
 		printf("write failed when update refcount, exit\n");
-#endif
 		return -1;
 	}
 	return 0;
@@ -514,7 +476,6 @@ static int v3_qcow2_alloc_refcount(v3_qcow2_t *pf, uint64_t cluster_idx) {
 	uint16_t val = 0;
 	uint64_t idx = cluster_idx, table_idx = 0, block_idx = 0, block_offset = 0;
 	uint64_t new_cluster_idx, new_table_idx = 0, new_block_idx = 0, write_value;
-//	int i;
 	uint64_t left_size, start_offset, buf_length;
 	if(!pf)
 		return -1;
@@ -527,9 +488,7 @@ static int v3_qcow2_alloc_refcount(v3_qcow2_t *pf, uint64_t cluster_idx) {
 retry:
 	ret = v3_file_read(pf->fd, (uint8_t*)&block_offset, sizeof(uint64_t), pf->header.refcount_table_offset + table_idx * sizeof(uint64_t));
 	if(ret != sizeof(uint64_t) || table_idx > pf->header.refcount_table_clusters) {
-#ifdef __DEBUG__
 		printf("read failed, exit!\n");
-#endif
 		return -1;	
 	}
 	block_offset = be64toh(block_offset);
@@ -538,9 +497,7 @@ retry:
 		// and also we need to initialize this cluster with zeros
 		new_cluster_idx = v3_qcow2_alloc_clusters(pf, 1);
 		if(new_cluster_idx <= 0) {
-#ifdef __DEBUG__
 			printf("failed to allocate new cluster, exit!\n");
-#endif
 			return -1;
 		}
 		idx = new_cluster_idx;
@@ -554,23 +511,21 @@ retry:
 		while(left_size > 0) {
 			//ret = write(pf->fd, zero_buff, INIT_BUFF_SIZE < left_size ? INIT_BUFF_SIZE : left_size);
 			buf_length = INIT_BUFF_SIZE < left_size ? INIT_BUFF_SIZE : left_size;
-			ret = my_file_write(pf->fd, zero_buff, buf_length, start_offset);
+			ret = v3_file_write(pf->fd, zero_buff, buf_length, start_offset);
 			start_offset += buf_length;
 			if(ret <= 0) {
-#ifdef __DEBUG__
 				printf("something wrong with write, exit\n");
-#endif 
 				return -1;
 			}
 			left_size -= INIT_BUFF_SIZE;
 		}
 		// update the refcount table with the new refcount block
 		write_value = htobe64(new_table_idx << pf->header.cluster_bits);
-		ret = my_file_write(pf->fd, (uint8_t*)&write_value, sizeof(uint64_t), pf->header.refcount_table_offset + table_idx * sizeof(uint64_t));
+		ret = v3_file_write(pf->fd, (uint8_t*)&write_value, sizeof(uint64_t), pf->header.refcount_table_offset + table_idx * sizeof(uint64_t));
 		if(new_table_idx == table_idx) {
 			// in the same refcount block, increase its refcount here
 			val = htobe16(1);
-			ret = my_file_write(pf->fd, (uint8_t*)&val, sizeof(uint16_t), (new_table_idx << pf->header.cluster_bits) + sizeof(uint16_t) * new_block_idx);
+			ret = v3_file_write(pf->fd, (uint8_t*)&val, sizeof(uint16_t), (new_table_idx << pf->header.cluster_bits) + sizeof(uint16_t) * new_block_idx);
 		} else {
 			v3_qcow2_alloc_refcount(pf, new_cluster_idx);
 			v3_qcow2_update_refcount(pf, new_cluster_idx, 1);
@@ -578,14 +533,6 @@ retry:
 
 		goto retry;
 	}
-	/*
-	lseek(pf->fd, block_offset + block_idx * sizeof(uint16_t), SEEK_SET);
-	ret = read(pf->fd, (uint8_t*)&val, sizeof(uint16_t));
-	if(ret != sizeof(uint16_t)) {
-		printf("another read failed, exit!\n");
-		exit(-1);
-	}
-	*/
 	res = 0;
 	return res;
 }
@@ -597,17 +544,12 @@ static int v3_qcow2_increase_refcount(v3_qcow2_t *pf, uint64_t cluster_idx) {
 	if(!pf)
 		return -1;
 	refcount = v3_qcow2_get_refcount(pf, cluster_idx);
-#ifdef __DEBUG__
-	printf("***increase!!\n");
-#endif
 	if(refcount <= 0) {
 		// execute to here means that no cluster block entry is allocated
 		// we need to allocate the entry here
 		refcount = v3_qcow2_alloc_refcount(pf, cluster_idx);
 		if(refcount) {
-#ifdef __DEBUG__
 			printf("something wrong when allocate refcount entry, exit!\n");
-#endif
 			return -1;
 		}
 		refcount = 1;	
@@ -617,6 +559,12 @@ static int v3_qcow2_increase_refcount(v3_qcow2_t *pf, uint64_t cluster_idx) {
 	// write the refcount back to the file
 	return v3_qcow2_update_refcount(pf, cluster_idx, refcount);
 }
+
+/*
+ * this function is to decrease the reference count of a cluster
+ * since the snapshot is not implemented, 
+ * this function is commented to avoid compile warning
+ */
 /*
 static int v3_qcow2_decrease_refcount(v3_qcow2_t *pf, uint64_t cluster_idx) {
 	int refcount = 0;
@@ -675,45 +623,14 @@ static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
 		v3_qcow2_increase_refcount(pf, l2_cluster_idx);
 		memset(init_buff, 0, INIT_BUFF_SIZE);
 		for(done_bytes = 0; done_bytes < pf->cluster_size; done_bytes += INIT_BUFF_SIZE) {
-			ret = my_file_write(pf->fd, init_buff, INIT_BUFF_SIZE, l2_cluster_offset + done_bytes);
+			ret = v3_file_write(pf->fd, init_buff, INIT_BUFF_SIZE, l2_cluster_offset + done_bytes);
 		}
-		/*
-		 * set all the slot in gap to zero
-		 * not necessary since the l1_size must be larger than allowed size
-		 */
-		/*
-		lseek(pf->fd, pf->header.l1_table_offset + sizeof(uint64_t) * pf->header.l1_size, SEEK_SET);
-		while(l1_idx > pf->header.l1_size) {
-			ret = write(pf->fd, (uint8_t*)&zero_tmp, sizeof(uint64_t));
-			pf->header.l1_size++;
-		}
-		*/
 		/*
 		 * set the copied bit
 		 */
 		l2_cluster_offset |= QCOW2_COPIED;
 		l2_cluster_offset = htobe64(l2_cluster_offset);
-		ret = my_file_write(pf->fd, (uint8_t*)&l2_cluster_offset, sizeof(uint64_t),  pf->header.l1_table_offset + sizeof(uint64_t) * l1_idx);
-		/*
-		 * update the header and write the update to file
-		 * not necessary either
-		 */
-		/*
-		pf->header.l1_size = l1_idx + 1;
-		l2_cluster_offset = htobe64(pf->header.l1_size);
-		lseek(pf->fd, offsetof(v3_qcow2_header_t, l1_size), SEEK_SET);
-		ret = write(pf->fd, &l2_cluster_offset, sizeof(uint64_t));
-		*/
-		// DONE: TODO: increase the refcount of this newly allocated cluster
-		// need to do it later
-	} else {
-		/*
-		 * something wrong
-		 */
-		/*
-		printf("%s: %d => impossible branch", __FILE__, __LINE__);
-		return -1;
-		*/
+		ret = v3_file_write(pf->fd, (uint8_t*)&l2_cluster_offset, sizeof(uint64_t),  pf->header.l1_table_offset + sizeof(uint64_t) * l1_idx);
 	}
 	ret = v3_file_read(pf->fd, (uint8_t*)&l2_cluster_offset, sizeof(uint64_t),  pf->header.l1_table_offset + sizeof(uint64_t) * l1_idx);
 	l2_cluster_offset = be64toh(l2_cluster_offset) & ~(QCOW2_COPIED | QCOW2_COMPRESSED);
@@ -736,16 +653,13 @@ static uint64_t v3_qcow2_alloc_cluster_offset(v3_qcow2_t *pf, uint64_t pos) {
 		if(data_buff) {
 			pos = (pos >> pf->header.cluster_bits) << pf->header.cluster_bits;
 			v3_qcow2_read_cluster(pf, data_buff, pos, pf->cluster_size);
-			ret = my_file_write(pf->fd, data_buff, pf->cluster_size, cluster_offset);
+			ret = v3_file_write(pf->fd, data_buff, pf->cluster_size, cluster_offset);
 			V3_Free(data_buff);
 		} else {
-#ifdef __DEBUG__
 			printf("failed to initialize the original data\n");
-#endif
 		}
 		offset = htobe64(cluster_offset | QCOW2_COPIED);
-		ret = my_file_write(pf->fd, (uint8_t*)&offset, sizeof(uint64_t), l2_cluster_offset);
-		// TODO: increase refcount of the new-allocated cluster
+		ret = v3_file_write(pf->fd, (uint8_t*)&offset, sizeof(uint64_t), l2_cluster_offset);
 		v3_qcow2_increase_refcount(pf, l2_cluster_idx);
 	}
 
@@ -760,17 +674,13 @@ int v3_qcow2_write_cluster(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len)
 	int ret = 0;
 	cluster_addr = v3_qcow2_alloc_cluster_offset(pf, pos);
 	if(!cluster_addr) {
-#ifdef __DEBUG__
 		printf("zero cluster address\n");
-#endif
 		return -1;
 	}
 	cluster_offset = pos & (pf->cluster_size - 1);
-	ret = my_file_write(pf->fd, buff, len, cluster_addr + cluster_offset);
+	ret = v3_file_write(pf->fd, buff, len, cluster_addr + cluster_offset);
 	if(ret != len) {
-#ifdef __DEBUG__
 		printf("ret != len\n");
-#endif
 		return -1;
 	}
 	return 0;
@@ -785,9 +695,7 @@ int v3_qcow2_write(v3_qcow2_t *pf, uint8_t *buff, uint64_t pos, int len) {
 		next_addr = (pos + pf->cluster_size) & ~(pf->cluster_size - 1);
 		cur_len = next_addr - pos;
 		cur_len = cur_len < len ? cur_len : len;
-#ifdef __DEBUG__
 		printf("pos=%lu, len=%lu\n", pos, cur_len);
-#endif
 		ret = v3_qcow2_write_cluster(pf, buff, pos, cur_len);
 		if(ret)
 			return -1;
@@ -813,6 +721,7 @@ static int read(uint8_t * buf, uint64_t lba, uint64_t num_bytes, void * private_
 
 
 static int write(uint8_t * buf, uint64_t lba, uint64_t num_bytes, void * private_data) {
+    //struct disk_state * disk = (struct disk_state *)private_data;
     v3_qcow2_t * disk = (v3_qcow2_t *) private_data;
 
     PrintDebug(VM_NONE, VCORE_NONE, "QCOW Writing %llu bytes from 0x%p to %llu\n", num_bytes,  buf, lba);
@@ -845,8 +754,8 @@ static struct v3_dev_blk_ops blk_ops = {
 
 
 
-static int disk_free(struct disk_state * disk) {
-    v3_qcow2_close( (v3_qcow2_t*)disk );
+static int disk_free(v3_qcow2_t * disk) {
+    v3_qcow2_close(disk);
     return 0;
 }
 
@@ -879,9 +788,6 @@ static int disk_init(struct v3_vm_info * vm, v3_cfg_tree_t * cfg) {
 	return -1;
     }
 
-
-
-
     disk = v3_qcow2_open(vm, path, flags);
 
     if (disk == NULL) {
@@ -896,7 +802,6 @@ static int disk_init(struct v3_vm_info * vm, v3_cfg_tree_t * cfg) {
 	V3_Free(disk);
 	return -1;
     }
-
 
     if (v3_dev_connect_blk(vm, v3_cfg_val(frontend_cfg, "tag"), 
 			   &blk_ops, frontend_cfg, disk) == -1) {
