@@ -1,0 +1,115 @@
+From 39568132f0f554ea9725f408d48f164f766b66a7 Mon Sep 17 00:00:00 2001
+From: Weixiao Fu <weixiaofu2014@u.northwestern.edu>
+Date: Fri, 20 Mar 2015 22:32:58 -0500
+Subject: [PATCH 1/2] Update the config tool and makefiles to fit QCOWDISK
+
+
+Signed-off-by: Yang Yang <geraint0923@gmail.com>
+---
+ palacios/src/devices/Kconfig  |   13 +++++++++++++
+ palacios/src/devices/Makefile |    1 +
+ v3_config_guest.pl            |   14 ++++++++++----
+ 3 files changed, 24 insertions(+), 4 deletions(-)
+
+diff --git a/palacios/src/devices/Kconfig b/palacios/src/devices/Kconfig
+index da55c11..2654818 100644
+--- a/palacios/src/devices/Kconfig
++++ b/palacios/src/devices/Kconfig
+@@ -249,6 +249,19 @@ config DEBUG_FILEDISK
+ 	help 
+ 	  Enable debugging for the file based disk backend 	
+ 
++config QCOWDISK
++	bool "QCOWDISK storage backend"
++	default y
++	depends on FILE && (IDE || LINUX_VIRTIO_BLOCK)
++	help
++	  Includes the QEMU QCOW2 file-based disk backend
++
++config DEBUG_QCOWDISK
++	bool "QCOWDISK backend debugging"
++	depends on QCOWDISK && DEBUG_ON
++	help 
++	  Enable debugging for the QEMU QCOW2-based disk backend 	
++
+ config NETDISK
+ 	bool "NETDISK storage backend"
+ 	default y
+diff --git a/palacios/src/devices/Makefile b/palacios/src/devices/Makefile
+index e6a822a..035bdf5 100644
+--- a/palacios/src/devices/Makefile
++++ b/palacios/src/devices/Makefile
+@@ -37,6 +37,7 @@ obj-$(V3_CONFIG_TMPDISK) += tmpdisk.o
+ obj-$(V3_CONFIG_RAMDISK) += ramdisk.o 
+ obj-$(V3_CONFIG_NETDISK) += netdisk.o 
+ obj-$(V3_CONFIG_FILEDISK) += filedisk.o
++obj-$(V3_CONFIG_QCOWDISK) += qcowdisk.o
+ 
+ obj-$(V3_CONFIG_CGA) += cga.o
+ obj-$(V3_CONFIG_TELNET_CONSOLE) += telnet_cons.o
+diff --git a/v3_config_guest.pl b/v3_config_guest.pl
+index 35aadc7..50c59a6 100755
+--- a/v3_config_guest.pl
++++ b/v3_config_guest.pl
+@@ -847,7 +847,7 @@ sub do_storage {
+ 
+ sub do_storage_backend {
+   my ($cr, $pdir, $dir, $name, $frontend, $loc, $frontendblock) = @_;
+-  my ($canramdisk, $canfiledisk, $cannetdisk, $cantmpdisk);
++  my ($canramdisk, $canfiledisk, $cannetdisk, $cantmpdisk, $canqcowdisk);
+   my @devs=("cd","hd","nothing");
+   my @disks;
+   my $type;
+@@ -857,15 +857,17 @@ sub do_storage_backend {
+ 
+   $canramdisk = is_palacios_core_feature_enabled($pdir, "V3_CONFIG_RAMDISK");
+   $canfiledisk = is_palacios_core_feature_enabled($pdir, "V3_CONFIG_FILEDISK");
++  $canqcowdisk = is_palacios_core_feature_enabled($pdir, "V3_CONFIG_QCOWDISK");
+   $cannetdisk = is_palacios_core_feature_enabled($pdir, "V3_CONFIG_NETDISK");
+   $cantmpdisk = is_palacios_core_feature_enabled($pdir, "V3_CONFIG_TMPDISK");
+   push @disks, "ramdisk" if $canramdisk;
+   push @disks, "filedisk" if $canramdisk;
++  push @disks, "qcowdisk" if $canramdisk;
+   push @disks, "netdisk" if $cannetdisk;
+   push @disks, "tmpdisk" if $cantmpdisk;
+ 
+ 
+-  if (!$canramdisk && !$canfiledisk && !$cannetdisk && !$cantmpdisk) {
++  if (!$canramdisk && !$canfiledisk && !$cannetdisk && !$cantmpdisk && !$canqcowdisk) {
+     print "You have no storage implementations enabled in your Palacios build, so it is impossible\n";
+     print "to add anything to storage controller \"$frontend\" location \"$loc\"\n";
+     return -1;
+@@ -884,6 +886,7 @@ sub do_storage_backend {
+     print "A storage device requires one of the following implementations\n";
+     print "  * RAMDISK - the data is kept in memory (common) : ".($canramdisk ? "available" : "UNAVAILABLE")."\n";
+     print "  * FILEDISK - the data is kept in a host file (common) : ".($canfiledisk ? "available" : "UNAVAILABLE")."\n";
++    print "  * QCOWDISK - the data is kept in a host file (qcow) : ".($canqcowdisk ? "available" : "UNAVAILABLE")."\n";
+     print "  * NETDISK - the data is accessed via the network (uncommon) : ".($cannetdisk ? "available" : "UNAVAILABLE")."\n";
+     print "  * TMPDISK - the data is kept in memory and discarded (common) : ".($cantmpdisk ? "available" : "UNAVAILABLE")."\n";
+     while (1) {
+@@ -893,7 +896,7 @@ sub do_storage_backend {
+       last if $#test==0;
+     }
+ 
+-    if ($type eq "filedisk" || $type eq "ramdisk") { 
++    if ($type eq "filedisk" || $type eq "ramdisk" || $type eq "qcowdisk") { 
+       print "$type requires a file (.iso for example).  Do you have one? [y] : ";
+       if (get_user("y") eq "y") { 
+ 	while (1) { 
+@@ -930,9 +933,12 @@ sub do_storage_backend {
+ 	add_device($cr,"RAMDISK","$frontend\_$loc", undef, 
+ 		   "    <file>$frontend\_$loc</file>\n".$attach);
+ 	add_file($cr, "$frontend\_$loc", "$frontend\_$loc.dat");
+-      } else {
++      } elsif ($type eq "filedisk") {
+ 	add_device($cr,"FILEDISK","$frontend\_$loc", $what eq "hd" ? "writable=\"1\"" : undef, 
+ 		   "    <path>$frontend\_$loc.dat</path>\n".$attach);
++      } else {
++	add_device($cr,"QCOWDISK","$frontend\_$loc", $what eq "hd" ? "writable=\"1\"" : undef, 
++		   "    <path>$frontend\_$loc.dat</path>\n".$attach);
+       }
+       last;
+     } else {
+-- 
+1.7.6.5
+
